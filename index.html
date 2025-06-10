@@ -1,114 +1,179 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Web 3D Editor</title>
+  <meta charset="UTF-8" />
+  <title>Web 3D Editor+Physics</title>
   <style>
-    body, html { margin: 0; padding: 0; overflow: hidden; }
-    canvas { display: block; }
-    #ui {
-      position: absolute; top: 0; left: 0;
-      width: 100%; display: flex; gap: 10px;
-      background: rgba(0, 0, 0, 0.6); color: white;
-      padding: 10px; z-index: 10;
-    }
-    #log { position: absolute; bottom: 0; left: 0; width: 100%; background: black; color: lime; font-family: monospace; padding: 5px; max-height: 120px; overflow-y: auto; }
+    body, html { margin: 0; overflow: hidden; height: 100%; }
+    #ui { position: absolute; top: 0; width: 100%; display: flex; background: rgba(0,0,0,0.7); color: white; padding: 8px; gap: 8px; z-index:10; }
+    #canvas-container { width: 100%; height: 100%; }
+    #log { position:absolute; bottom:0; width:100%; max-height:120px; overflow:auto; background:#000;color:#0f0;font-family:monospace; padding:4px; z-index:10; }
+    #assets { background:#222; padding:4px; display:flex; gap:4px; }
+    .asset { width:48px;height:48px;background:#555;display:flex; align-items:center; justify-content:center; cursor: pointer; }
   </style>
 </head>
 <body>
   <div id="ui">
-    <button onclick="addCube()">➕ Add Cube</button>
-    <button onclick="logScene()">🪵 Log Scene</button>
-    <label>Code:
-      <input type="text" id="codeInput" placeholder="this.position.x += 0.1">
-    </label>
-    <button onclick="applyCode()">▶️ Run Code on Selected</button>
-    <span id="selectedInfo">Selected: None</span>
+    <button onclick="addCube()">Add Cube</button>
+    <button onclick="saveScene()">💾 Save</button>
+    <button onclick="loadScene()">📂 Load</button>
+    <input id="codeInput" placeholder="this.position.y += 0.1" style="flex:1"/>
+    <button onclick="applyCode()">▶️ Run Code</button>
+    <div id="selectedInfo">Selected: None</div>
+    <div id="assets">
+      <div class="asset" onclick="addCube()">Cube</div>
+    </div>
   </div>
+  <div id="canvas-container"></div>
   <div id="log"></div>
+
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"></script>
   <script>
-    let scene = new THREE.Scene();
-    let camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1000);
-    let renderer = new THREE.WebGLRenderer({antialias: true});
-    document.body.appendChild(renderer.domElement);
+    // --- Scene Setup ---
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
     renderer.setSize(innerWidth, innerHeight);
 
-    let controls = new THREE.OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    camera.position.set(5, 5, 7); controls.update();
 
-    camera.position.set(5, 5, 5);
-    controls.update();
+    // --- Physics Setup ---
+    const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
+    world.broadphase = new CANNON.NaiveBroadphase();
 
-    let selected = null;
-    const log = (msg) => document.getElementById("log").innerHTML += msg + "<br>";
-    const updateSelectedText = () => {
-      document.getElementById("selectedInfo").textContent = `Selected: ${selected?.name || 'None'}`;
-    };
+    const groundMat = new CANNON.Material();
+    const ground = new CANNON.Body({ shape: new CANNON.Plane(), material: groundMat });
+    ground.quaternion.setFromEuler(-Math.PI/2, 0, 0);
+    world.addBody(ground);
 
-    let raycaster = new THREE.Raycaster();
-    let mouse = new THREE.Vector2();
+    scene.add(new THREE.GridHelper(20, 20));
+    scene.add(new THREE.AmbientLight(0x888));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+    dir.position.set(5, 10, 7); scene.add(dir);
 
-    let light = new THREE.DirectionalLight(0xffffff, 1);
-    light.position.set(5, 10, 7);
-    scene.add(light);
-    scene.add(new THREE.AmbientLight(0x404040));
+    // --- State ---
+    let selected = null, objects = [], logArea = document.getElementById('log'),
+        raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
 
-    let grid = new THREE.GridHelper(20, 20);
-    scene.add(grid);
+    function log(msg) { logArea.innerHTML += msg + '<br>'; logArea.scrollTop = logArea.scrollHeight; }
+    function updateSelected() { document.getElementById('selectedInfo').textContent = 'Selected: ' + (selected ? selected.three.name : 'None'); }
 
+    // --- Add Cube with Physics ---
     function addCube() {
-      let geo = new THREE.BoxGeometry();
-      let mat = new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff });
-      let mesh = new THREE.Mesh(geo, mat);
-      mesh.name = "Cube_" + Math.floor(Math.random() * 1000);
-      mesh.position.set(Math.random()*4-2, 0.5, Math.random()*4-2);
-      scene.add(mesh);
-      log(`🟦 Added ${mesh.name}`);
+      const size = 1;
+      const threeMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(size, size, size),
+        new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff })
+      );
+      threeMesh.name = 'Cube_' + Math.floor(Math.random() * 10000);
+      threeMesh.position.set(Math.random()*2, 2, Math.random()*2);
+      scene.add(threeMesh);
+
+      const body = new CANNON.Body({
+        mass: 5,
+        shape: new CANNON.Box(new CANNON.Vec3(size/2, size/2, size/2)),
+        position: new CANNON.Vec3(
+          threeMesh.position.x, threeMesh.position.y, threeMesh.position.z
+        )
+      });
+      world.addBody(body);
+
+      objects.push({ three: threeMesh, phys: body });
+      log(`Added ${threeMesh.name}`);
     }
 
-    function logScene() {
-      log("📦 Scene Objects:");
-      scene.children.forEach(o => log("- " + o.name));
-    }
-
-    function applyCode() {
-      if (!selected) return log("⚠️ No object selected.");
-      try {
-        const code = document.getElementById("codeInput").value;
-        Function("with(this){" + code + "}").call(selected);
-        log("✅ Code applied.");
-      } catch (e) {
-        log("❌ " + e.message);
-      }
-    }
-
-    window.addEventListener('click', (e) => {
-      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    // --- Raycast select ---
+    window.addEventListener('pointerdown', (e) => {
+      mouse.x = (e.clientX / innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / innerHeight) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
-      let intersects = raycaster.intersectObjects(scene.children);
-      if (intersects.length) {
-        selected = intersects[0].object;
-        updateSelectedText();
-        log("🎯 Selected: " + selected.name);
+      const hits = raycaster.intersectObjects(objects.map(o => o.three));
+      if (hits.length) {
+        selected = objects.find(o => o.three === hits[0].object);
+        updateSelected(); log(`Selected ${selected.three.name}`);
       }
     });
 
+    // --- Apply JS Behavior ---
+    function applyCode() {
+      if (!selected) return log('⚠️ No object selected');
+      const code = document.getElementById('codeInput').value;
+      try {
+        Function('with(this){' + code + '}').call(selected.three);
+        log('✅ Applied code to ' + selected.three.name);
+      } catch (e) {
+        log('❌ ' + e.message);
+      }
+    }
+
+    // --- Save / Load Scene ---
+    function saveScene() {
+      const data = objects.map(o => ({
+        name: o.three.name,
+        color: o.three.material.color.getHex(),
+        position: o.three.position.toArray()
+      }));
+      const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = 'scene.json'; a.click();
+      log('💾 Scene saved');
+    }
+
+    function loadScene() {
+      const input = document.createElement('input');
+      input.type = 'file'; input.accept = '.json';
+      input.onchange = () => {
+        const data = JSON.parse(URL.createObjectURL(input.files[0]));
+        // Remove old
+        objects.forEach(o => scene.remove(o.three), world.removeBody(o.phys));
+        objects = [];
+
+        data.forEach(item => {
+          // recreate
+          const mat = new THREE.MeshStandardMaterial({ color: item.color });
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
+          mesh.name = item.name;
+          mesh.position.fromArray(item.position);
+          scene.add(mesh);
+
+          const phys = new CANNON.Body({
+            mass: 5,
+            shape: new CANNON.Box(new CANNON.Vec3(0.5,0.5,0.5)),
+            position: new CANNON.Vec3(...item.position)
+          });
+          world.addBody(phys);
+          objects.push({ three: mesh, phys });
+        });
+        log('📂 Scene loaded—objects recreated');
+      };
+      input.click();
+    }
+
+    // --- Animate & Sync ---
+    const dt = 1/60;
     function animate() {
       requestAnimationFrame(animate);
+      world.step(dt);
+
+      objects.forEach(o => {
+        o.three.position.copy(o.phys.position);
+        o.three.quaternion.copy(o.phys.quaternion);
+      });
+
       controls.update();
       renderer.render(scene, camera);
     }
+    animate();
 
     window.addEventListener('resize', () => {
-      camera.aspect = innerWidth / innerHeight;
+      camera.aspect = innerWidth/innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(innerWidth, innerHeight);
     });
-
-    animate();
   </script>
 </body>
 </html>
