@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>WebGame Studio (Unity-like)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+    body, html { height: 100%; }
+    #layout {
+      display: grid;
+      grid-template-columns: 200px 1fr 300px;
+      grid-template-rows: 30px 1fr 150px;
+      grid-template-areas:
+        "topbar topbar topbar"
+        "hierarchy scene inspector"
+        "console console console";
+      height: 100vh;
+    }
+    #topbar { grid-area: topbar; background: #222; color: white; padding: 5px 10px; }
+    #hierarchy, #inspector, #scene, #console {
+      border: 1px solid #444;
+      padding: 10px;
+      overflow: auto;
+    }
+    #hierarchy { grid-area: hierarchy; background: #111; color: white; }
+    #inspector { grid-area: inspector; background: #1a1a1a; color: white; }
+    #scene { grid-area: scene; background: #333; }
+    #console { grid-area: console; background: #000; color: lime; font-family: monospace; }
+    .game-object { cursor: pointer; padding: 4px; }
+    .game-object:hover { background: #444; }
+  </style>
+</head>
+<body>
+  <div id="layout">
+    <div id="topbar">🕹️ WebGame Studio</div>
+    <div id="hierarchy"><h4>Hierarchy</h4><div id="objects"></div></div>
+    <div id="scene"><h4>Scene View</h4><canvas id="gameCanvas" width="640" height="360"></canvas></div>
+    <div id="inspector"><h4>Inspector</h4><div id="inspector-content">Select an object</div></div>
+    <div id="console"><h4>Console</h4><div id="console-log"></div></div>
+  </div>
+
+  <script>
+    const objects = [
+      { id: 1, name: "Player", x: 50, y: 100, color: "blue" },
+      { id: 2, name: "Enemy", x: 200, y: 150, color: "red" }
+    ];
+
+    const objList = document.getElementById("objects");
+    const inspector = document.getElementById("inspector-content");
+    const consoleLog = document.getElementById("console-log");
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // Log to "console"
+    function log(msg) {
+      consoleLog.innerHTML += msg + "<br>";
+    }
+
+    // Render object list
+    objects.forEach(obj => {
+      const div = document.createElement("div");
+      div.className = "game-object";
+      div.textContent = obj.name;
+      div.onclick = () => {
+        inspector.innerHTML = `
+          <strong>Name:</strong> ${obj.name}<br>
+          <strong>X:</strong> ${obj.x}<br>
+          <strong>Y:</strong> ${obj.y}<br>
+          <strong>Color:</strong> ${obj.color}
+        `;
+        log(`Selected: ${obj.name}`);
+      };
+      objList.appendChild(div);
+    });
+
+    // Draw scene
+    function drawScene() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (const obj of objects) {
+        ctx.fillStyle = obj.color;
+        ctx.fillRect(obj.x, obj.y, 50, 50);
+      }
+      requestAnimationFrame(drawScene);
+    }
+
+    drawScene();
+  </script>
+</body>
+</html>
